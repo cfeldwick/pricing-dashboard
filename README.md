@@ -20,7 +20,7 @@ A full-stack financial analytics dashboard for visualizing streaming vanilla int
 │                        BACKEND                               │
 │  ASP.NET Core 8.0                                           │
 │  SignalR Hub (IAsyncEnumerable streaming)                   │
-│  Fake Solace Market Data Service (generates yield curves)   │
+│  Solace Market Data (real or fake, configurable)            │
 │  Shared Subscription Manager (ref-counted)                  │
 │  JSON Hedge Templates                                       │
 └─────────────────────────────────────────────────────────────┘
@@ -93,7 +93,8 @@ pricing-dashboard/
     │   │   ├── StreamRequest.cs       # API request/response DTOs
     │   │   └── YieldCurve.cs          # Market data models
     │   ├── Services/
-    │   │   ├── FakeSolaceMarketDataService.cs  # Simulated market data
+    │   │   ├── FakeSolaceMarketDataService.cs  # Simulated market data (demo)
+    │   │   ├── SolaceMarketDataService.cs      # Real Solace integration
     │   │   ├── IMarketDataService.cs           # Market data interface
     │   │   ├── PricingService.cs               # Price calculation
     │   │   ├── SubscriptionManager.cs          # Shared subscriptions
@@ -149,14 +150,81 @@ Stubbed pricing logic derives prices from yield curve points:
 - **Swap**: Par swap rate approximation
 - **BasisSwap**: Spread calculation
 
-## Extending for Production
+## Solace Configuration
 
-To connect to real Solace:
+The application supports both a fake (demo) and real Solace market data service. Configure via `appsettings.json`:
 
-1. Replace `FakeSolaceMarketDataService` with a real Solace client implementation
-2. Configure Kerberos authentication in `appsettings.json`
-3. Update `IMarketDataService.Subscribe` to use actual Solace topics
-4. Implement proper curve deserialization for your message format
+### Demo Mode (Default)
+
+```json
+{
+  "Solace": {
+    "Enabled": false
+  }
+}
+```
+
+When `Enabled` is `false`, the application uses `FakeSolaceMarketDataService` which generates realistic yield curves every 500-1000ms.
+
+### Production Mode (Real Solace)
+
+```json
+{
+  "Solace": {
+    "Enabled": true,
+    "Host": "tcp://solace-broker:55555",
+    "VpnName": "production",
+    "UseKerberos": true,
+    "KerberosServiceName": "solace",
+    "ConnectTimeoutMs": 10000,
+    "ReconnectRetries": 5,
+    "ReconnectRetryIntervalMs": 5000,
+    "RequestCachedMessages": true
+  }
+}
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Enabled` | bool | `false` | Use real Solace (`true`) or fake service (`false`) |
+| `Host` | string | `tcp://localhost:55555` | Solace broker connection string |
+| `VpnName` | string | `default` | Solace VPN name |
+| `Username` | string | `""` | Username for basic auth |
+| `Password` | string | `""` | Password for basic auth |
+| `UseKerberos` | bool | `false` | Use Kerberos authentication |
+| `KerberosServiceName` | string | `solace` | Kerberos service principal name |
+| `ConnectTimeoutMs` | int | `10000` | Connection timeout in ms |
+| `ReconnectRetries` | int | `3` | Number of reconnection attempts |
+| `ReconnectRetryIntervalMs` | int | `3000` | Delay between reconnection attempts |
+| `RequestCachedMessages` | bool | `true` | Request cached/last-value on subscribe |
+
+### Yield Curve Message Format
+
+The real Solace service expects yield curve messages in JSON format:
+
+```json
+{
+  "currency": "USD",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "sequenceNumber": 12345,
+  "points": {
+    "1M": 4.5123,
+    "3M": 4.5456,
+    "6M": 4.5789,
+    "1Y": 4.6123,
+    "2Y": 4.7456,
+    "5Y": 4.8789,
+    "10Y": 5.0123
+  }
+}
+```
+
+### Topic Pattern
+
+Yield curve topics follow the pattern configured in hedge templates:
+- Default: `MARKET/YIELDCURVE/{currency}` (e.g., `MARKET/YIELDCURVE/USD`)
 
 ## License
 

@@ -1,4 +1,5 @@
 using PricingDashboard.Server.Hubs;
+using PricingDashboard.Server.Models;
 using PricingDashboard.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,9 +17,29 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Register application services
-builder.Services.AddSingleton<IMarketDataService, FakeSolaceMarketDataService>();
-builder.Services.AddHostedService(sp => (FakeSolaceMarketDataService)sp.GetRequiredService<IMarketDataService>());
+// Bind Solace configuration
+builder.Services.Configure<SolaceConfiguration>(
+    builder.Configuration.GetSection(SolaceConfiguration.SectionName));
+
+// Register market data service based on configuration
+var solaceConfig = builder.Configuration
+    .GetSection(SolaceConfiguration.SectionName)
+    .Get<SolaceConfiguration>() ?? new SolaceConfiguration();
+
+if (solaceConfig.Enabled)
+{
+    builder.Services.AddSingleton<IMarketDataService, SolaceMarketDataService>();
+    builder.Services.AddHostedService(sp => (SolaceMarketDataService)sp.GetRequiredService<IMarketDataService>());
+    Console.WriteLine("Using REAL Solace market data service");
+}
+else
+{
+    builder.Services.AddSingleton<IMarketDataService, FakeSolaceMarketDataService>();
+    builder.Services.AddHostedService(sp => (FakeSolaceMarketDataService)sp.GetRequiredService<IMarketDataService>());
+    Console.WriteLine("Using FAKE Solace market data service (demo mode)");
+}
+
+// Register other application services
 builder.Services.AddSingleton<ISubscriptionManager, SubscriptionManager>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<IPricingService, PricingService>();
@@ -32,7 +53,12 @@ app.UseCors();
 app.MapHub<PricingHub>("/hubs/pricing");
 
 // Health check endpoint
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+app.MapGet("/health", (IMarketDataService marketDataService) => Results.Ok(new
+{
+    status = "healthy",
+    timestamp = DateTime.UtcNow,
+    marketDataService = marketDataService.GetType().Name
+}));
 
 // API endpoints for non-streaming operations
 app.MapGet("/api/currencies", (ITemplateService templateService) =>
