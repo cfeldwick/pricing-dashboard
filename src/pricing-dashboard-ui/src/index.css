@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* AG Grid custom dark theme overrides */
+.ag-theme-alpine-dark {
+  --ag-background-color: #1a1a2e;
+  --ag-header-background-color: #16213e;
+  --ag-odd-row-background-color: #1a1a2e;
+  --ag-row-hover-color: #0f3460;
+  --ag-border-color: #0f3460;
+  --ag-header-foreground-color: #8b8b8b;
+  --ag-foreground-color: #eaeaea;
+  --ag-font-size: 12px;
+  --ag-row-height: 28px;
+  --ag-header-height: 32px;
+}
+
+.ag-theme-alpine-dark .ag-header-cell {
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.ag-theme-alpine-dark .ag-cell {
+  display: flex;
+  align-items: center;
+}
+
+/* Price change animations */
+.price-up {
+  color: #00c853 !important;
+  animation: flash-green 0.3s ease-out;
+}
+
+.price-down {
+  color: #ff5252 !important;
+  animation: flash-red 0.3s ease-out;
+}
+
+@keyframes flash-green {
+  0% {
+    background-color: rgba(0, 200, 83, 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-red {
+  0% {
+    background-color: rgba(255, 82, 82, 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #0f3460;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #16213e;
+}
+
+/* Custom utilities */
+.font-mono {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
+}
