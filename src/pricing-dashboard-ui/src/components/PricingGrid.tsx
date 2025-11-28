@@ -2,39 +2,23 @@ import { useMemo, useCallback, useRef, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type {
   ColDef,
-  CellClassParams,
-  ValueFormatterParams,
   SideBarDef,
   StatusPanelDef,
   GetContextMenuItemsParams,
   MenuItemDef,
+  ICellRendererParams,
 } from 'ag-grid-community';
 import { LicenseManager } from 'ag-grid-enterprise';
 import 'ag-grid-enterprise';
 import { usePricingStore } from '../stores/pricingStore';
-import type { GridRow, PivotRow } from '../types';
+import { formatPrice, PriceCellRenderer } from './PriceCellRenderer';
+import type { GridRow, PivotRow, PriceFormat } from '../types';
 
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 // For PoC evaluation - in production, use a real license key
-// This will show a watermark but all features work
 LicenseManager.setLicenseKey('');
-
-const formatPrice = (value: number | undefined | null): string => {
-  if (value === undefined || value === null) return '-';
-  return value.toFixed(4);
-};
-
-const priceFormatter = (params: ValueFormatterParams): string => {
-  return formatPrice(params.value);
-};
-
-const getPriceClass = (params: CellClassParams): string => {
-  const data = params.data as GridRow;
-  if (!data?.priceChange) return '';
-  return data.priceChange === 'up' ? 'price-up' : data.priceChange === 'down' ? 'price-down' : '';
-};
 
 // Tenor sorting comparator
 const tenorComparator = (a: string, b: string): number => {
@@ -47,17 +31,45 @@ const tenorComparator = (a: string, b: string): number => {
   return tenorOrder(a) - tenorOrder(b);
 };
 
+// Custom cell renderer wrapper for flat view price column
+function FlatPriceCellRenderer(params: ICellRendererParams) {
+  const data = params.data as GridRow;
+  const context = params.context as { priceFormat: PriceFormat };
+
+  return (
+    <PriceCellRenderer
+      {...params}
+      priceFormat={context?.priceFormat || 'percent3'}
+      priceChange={data?.priceChange}
+      updateTimestamp={data?.updateTimestamp}
+    />
+  );
+}
+
 export function PricingGrid() {
   const gridRef = useRef<AgGridReact>(null);
-  const { instruments, prices, previousPrices, viewMode, sequenceNumber, lastUpdateTime } =
-    usePricingStore();
+  const {
+    instruments,
+    prices,
+    previousPrices,
+    updateTimestamps,
+    viewMode,
+    sequenceNumber,
+    lastUpdateTime,
+    priceFormat,
+  } = usePricingStore();
 
-  // Flat view rows
+  // Track previous ends to detect when pivot columns need updating
+  const prevEndsRef = useRef<string>('');
+  const prevViewModeRef = useRef(viewMode);
+
+  // Flat view rows with update timestamps
   const flatRows = useMemo((): GridRow[] => {
     return instruments.map((inst) => {
       const priceData = prices.get(inst.id);
       const prevPrice = previousPrices.get(inst.id);
       const currentPrice = priceData?.price;
+      const updateTs = updateTimestamps.get(inst.id);
 
       let priceChange: 'up' | 'down' | 'unchanged' | undefined;
       if (currentPrice !== undefined && prevPrice !== undefined) {
@@ -74,14 +86,13 @@ export function PricingGrid() {
         price: currentPrice ?? 0,
         prevPrice,
         priceChange,
+        updateTimestamp: updateTs,
       };
     });
-  }, [instruments, prices, previousPrices]);
+  }, [instruments, prices, previousPrices, updateTimestamps]);
 
-  // Pivot view rows (Start vs End matrix)
+  // Pivot view data - separate rows and column structure
   const pivotData = useMemo(() => {
-    if (viewMode !== 'pivot') return { rows: [], columns: [] as ColDef[] };
-
     const starts = [...new Set(instruments.map((i) => i.start))];
     const ends = [...new Set(instruments.map((i) => i.end))];
     const types = [...new Set(instruments.map((i) => i.type))];
@@ -90,57 +101,35 @@ export function PricingGrid() {
     ends.sort(tenorComparator);
 
     const rows: PivotRow[] = [];
-    for (const type of types) {
-      for (const start of starts) {
-        const row: PivotRow = { start, type };
-        for (const end of ends) {
-          const inst = instruments.find(
-            (i) => i.type === type && i.start === start && i.end === end
-          );
-          if (inst) {
-            const priceData = prices.get(inst.id);
-            row[end] = priceData?.price;
+    if (viewMode === 'pivot') {
+      for (const type of types) {
+        for (const start of starts) {
+          const row: PivotRow = { start, type };
+          for (const end of ends) {
+            const inst = instruments.find(
+              (i) => i.type === type && i.start === start && i.end === end
+            );
+            if (inst) {
+              const priceData = prices.get(inst.id);
+              row[end] = priceData?.price;
+            }
           }
-        }
-        if (Object.keys(row).some((k) => k !== 'start' && k !== 'type' && row[k] !== undefined)) {
-          rows.push(row);
+          if (Object.keys(row).some((k) => k !== 'start' && k !== 'type' && row[k] !== undefined)) {
+            rows.push(row);
+          }
         }
       }
     }
 
-    const columns: ColDef[] = [
-      {
-        field: 'type',
-        headerName: 'Type',
-        pinned: 'left',
-        width: 90,
-        cellClass: 'font-medium',
-        enableRowGroup: true,
-        rowGroup: false,
-      },
-      {
-        field: 'start',
-        headerName: 'Start',
-        pinned: 'left',
-        width: 70,
-        cellClass: 'font-medium',
-        comparator: tenorComparator,
-      },
-      ...ends.map((end) => ({
-        field: end,
-        headerName: end,
-        width: 85,
-        type: 'numericColumn',
-        valueFormatter: priceFormatter,
-        cellClass: 'text-right font-mono',
-        aggFunc: 'avg' as const,
-      })),
-    ];
-
-    return { rows, columns };
+    return { rows, ends };
   }, [viewMode, instruments, prices]);
 
-  // Flat view columns with enterprise features
+  // Create pivot value formatter that uses current format
+  const pivotValueFormatter = useCallback((params: { value: number | undefined | null }) => {
+    return formatPrice(params.value, priceFormat);
+  }, [priceFormat]);
+
+  // Flat view columns - stable reference, only depends on priceFormat
   const flatColumns = useMemo((): ColDef[] => [
     {
       field: 'type',
@@ -172,15 +161,44 @@ export function PricingGrid() {
     {
       field: 'price',
       headerName: 'Price',
-      width: 110,
-      type: 'numericColumn',
-      valueFormatter: priceFormatter,
-      cellClass: (params) => `text-right font-mono ${getPriceClass(params)}`,
+      width: 130,
+      cellRenderer: FlatPriceCellRenderer,
       aggFunc: 'avg',
       enableValue: true,
       filter: 'agNumberColumnFilter',
     },
   ], []);
+
+  // Pivot columns - depends on ends list and format
+  const pivotColumns = useMemo((): ColDef[] => {
+    return [
+      {
+        field: 'type',
+        headerName: 'Type',
+        pinned: 'left',
+        width: 90,
+        cellClass: 'font-medium',
+        enableRowGroup: true,
+      },
+      {
+        field: 'start',
+        headerName: 'Start',
+        pinned: 'left',
+        width: 70,
+        cellClass: 'font-medium',
+        comparator: tenorComparator,
+      },
+      ...pivotData.ends.map((end) => ({
+        field: end,
+        headerName: end,
+        width: 95,
+        type: 'numericColumn',
+        valueFormatter: pivotValueFormatter,
+        cellClass: 'text-right font-mono',
+        aggFunc: 'avg' as const,
+      })),
+    ];
+  }, [pivotData.ends, pivotValueFormatter]);
 
   const getRowId = useCallback((params: { data: GridRow | PivotRow }): string => {
     const data = params.data;
@@ -190,36 +208,57 @@ export function PricingGrid() {
     return `${data.type}-${data.start}`;
   }, []);
 
-  // Update grid data efficiently
+  // Only update row data, not columns, on each tick
   useEffect(() => {
     const api = gridRef.current?.api;
     if (!api) return;
 
-    if (viewMode === 'flat') {
-      api.setGridOption('rowData', flatRows);
-    } else {
-      api.setGridOption('rowData', pivotData.rows);
-    }
+    const rowData = viewMode === 'flat' ? flatRows : pivotData.rows;
+    api.setGridOption('rowData', rowData);
   }, [viewMode, flatRows, pivotData.rows]);
 
-  // Update columns when view mode changes
+  // Update columns only when view mode changes
   useEffect(() => {
     const api = gridRef.current?.api;
     if (!api) return;
 
-    if (viewMode === 'flat') {
-      api.setGridOption('columnDefs', flatColumns);
-    } else {
-      api.setGridOption('columnDefs', pivotData.columns);
+    if (viewMode !== prevViewModeRef.current) {
+      prevViewModeRef.current = viewMode;
+      if (viewMode === 'flat') {
+        api.setGridOption('columnDefs', flatColumns);
+      } else {
+        api.setGridOption('columnDefs', pivotColumns);
+        prevEndsRef.current = pivotData.ends.join(',');
+      }
     }
-  }, [viewMode, flatColumns, pivotData.columns]);
+  }, [viewMode, flatColumns, pivotColumns, pivotData.ends]);
+
+  // Update pivot columns only when End tenors change (new instruments added)
+  useEffect(() => {
+    const api = gridRef.current?.api;
+    if (!api || viewMode !== 'pivot') return;
+
+    const currentEnds = pivotData.ends.join(',');
+    if (currentEnds !== prevEndsRef.current) {
+      prevEndsRef.current = currentEnds;
+      api.setGridOption('columnDefs', pivotColumns);
+    }
+  }, [viewMode, pivotData.ends, pivotColumns]);
+
+  // Refresh cells when format changes
+  useEffect(() => {
+    const api = gridRef.current?.api;
+    if (!api) return;
+
+    api.setGridOption('context', { priceFormat });
+    api.refreshCells({ force: true });
+  }, [priceFormat]);
 
   const defaultColDef = useMemo((): ColDef => ({
     sortable: true,
     resizable: true,
     filter: true,
     floatingFilter: false,
-    enableCellChangeFlash: true,
   }), []);
 
   // Enterprise: Side bar configuration
@@ -269,12 +308,9 @@ export function PricingGrid() {
 
   // Enterprise: Context menu
   const getContextMenuItems = useCallback((params: GetContextMenuItemsParams): (string | MenuItemDef)[] => {
-    const result: (string | MenuItemDef)[] = [
+    return [
       'copy',
       'copyWithHeaders',
-      'copyWithGroupHeaders',
-      'separator',
-      'export',
       'separator',
       {
         name: 'Export to Excel',
@@ -298,7 +334,6 @@ export function PricingGrid() {
       'autoSizeAll',
       'resetColumns',
     ];
-    return result;
   }, []);
 
   return (
@@ -328,9 +363,10 @@ export function PricingGrid() {
         <AgGridReact
           ref={gridRef}
           rowData={viewMode === 'flat' ? flatRows : pivotData.rows}
-          columnDefs={viewMode === 'flat' ? flatColumns : pivotData.columns}
+          columnDefs={viewMode === 'flat' ? flatColumns : pivotColumns}
           defaultColDef={defaultColDef}
           getRowId={getRowId}
+          context={{ priceFormat }}
           animateRows={false}
           suppressCellFocus={true}
           headerHeight={32}
@@ -357,6 +393,8 @@ export function PricingGrid() {
               suppressCount: false,
             },
           }}
+          // Maintain column state
+          maintainColumnOrder={true}
         />
       </div>
     </div>

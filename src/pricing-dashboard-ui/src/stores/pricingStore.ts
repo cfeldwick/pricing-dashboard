@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Instrument, InstrumentPrice, ViewMode } from '../types';
+import type { Instrument, InstrumentPrice, ViewMode, PriceFormat } from '../types';
 
 interface PricingState {
   // Configuration
@@ -14,6 +14,7 @@ interface PricingState {
   // Live prices
   prices: Map<string, InstrumentPrice>;
   previousPrices: Map<string, number>;
+  updateTimestamps: Map<string, number>;
 
   // Streaming state
   isStreaming: boolean;
@@ -22,6 +23,7 @@ interface PricingState {
 
   // View settings
   viewMode: ViewMode;
+  priceFormat: PriceFormat;
 
   // Actions
   setCurrencies: (currencies: string[]) => void;
@@ -34,6 +36,7 @@ interface PricingState {
   updatePrices: (prices: InstrumentPrice[], sequenceNumber: number) => void;
   setStreaming: (streaming: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
+  setPriceFormat: (format: PriceFormat) => void;
   reset: () => void;
 }
 
@@ -45,10 +48,12 @@ export const usePricingStore = create<PricingState>((set) => ({
   instruments: [],
   prices: new Map(),
   previousPrices: new Map(),
+  updateTimestamps: new Map(),
   isStreaming: false,
   sequenceNumber: 0,
   lastUpdateTime: null,
   viewMode: 'flat',
+  priceFormat: 'percent3',
 
   setCurrencies: (currencies) => set({ currencies }),
 
@@ -79,11 +84,14 @@ export const usePricingStore = create<PricingState>((set) => ({
     instruments: [],
     prices: new Map(),
     previousPrices: new Map(),
+    updateTimestamps: new Map(),
   }),
 
   updatePrices: (prices, sequenceNumber) => set((state) => {
     const newPrices = new Map(state.prices);
     const newPreviousPrices = new Map(state.previousPrices);
+    const newUpdateTimestamps = new Map(state.updateTimestamps);
+    const now = Date.now();
 
     for (const price of prices) {
       const existing = newPrices.get(price.instrumentId);
@@ -91,11 +99,13 @@ export const usePricingStore = create<PricingState>((set) => ({
         newPreviousPrices.set(price.instrumentId, existing.price);
       }
       newPrices.set(price.instrumentId, price);
+      newUpdateTimestamps.set(price.instrumentId, now);
     }
 
     return {
       prices: newPrices,
       previousPrices: newPreviousPrices,
+      updateTimestamps: newUpdateTimestamps,
       sequenceNumber,
       lastUpdateTime: new Date(),
     };
@@ -105,10 +115,13 @@ export const usePricingStore = create<PricingState>((set) => ({
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
+  setPriceFormat: (format) => set({ priceFormat: format }),
+
   reset: () => set({
     instruments: [],
     prices: new Map(),
     previousPrices: new Map(),
+    updateTimestamps: new Map(),
     isStreaming: false,
     sequenceNumber: 0,
     lastUpdateTime: null,

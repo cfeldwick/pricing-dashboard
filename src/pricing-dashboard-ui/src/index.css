@@ -44,33 +44,63 @@ body {
   align-items: center;
 }
 
-/* Price change animations */
+/* Price cell styling */
+.price-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  gap: 4px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+}
+
+.price-value {
+  color: #eaeaea;
+}
+
+.price-arrow {
+  font-size: 8px;
+  line-height: 1;
+}
+
+.price-arrow-up {
+  color: #00c853;
+}
+
+.price-arrow-down {
+  color: #ff5252;
+}
+
+/* Direction coloring (persistent after flash) */
+.price-direction-up .price-value {
+  color: #00c853;
+}
+
+.price-direction-down .price-value {
+  color: #ff5252;
+}
+
+/* Flash animation on any update */
+.price-flash {
+  animation: flash-update 0.3s ease-out;
+}
+
+@keyframes flash-update {
+  0% {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Legacy price classes for non-custom cells */
 .price-up {
   color: #00c853 !important;
-  animation: flash-green 0.3s ease-out;
 }
 
 .price-down {
   color: #ff5252 !important;
-  animation: flash-red 0.3s ease-out;
-}
-
-@keyframes flash-green {
-  0% {
-    background-color: rgba(0, 200, 83, 0.3);
-  }
-  100% {
-    background-color: transparent;
-  }
-}
-
-@keyframes flash-red {
-  0% {
-    background-color: rgba(255, 82, 82, 0.3);
-  }
-  100% {
-    background-color: transparent;
-  }
 }
 
 /* Scrollbar styling */

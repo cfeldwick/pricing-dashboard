@@ -1,4 +1,5 @@
 import { CurrencySelector } from './components/CurrencySelector';
+import { FormatSelector } from './components/FormatSelector';
 import { InstrumentBuilder } from './components/InstrumentBuilder';
 import { InstrumentList } from './components/InstrumentList';
 import { StreamControls } from './components/StreamControls';
@@ -28,6 +29,8 @@ function App() {
         <div className="w-px h-6 bg-trader-border" />
         <InstrumentBuilder />
         <div className="flex-1" />
+        <FormatSelector />
+        <div className="w-px h-6 bg-trader-border" />
         <ViewModeToggle />
       </div>
 

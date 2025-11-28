@@ -33,6 +33,8 @@ export interface StreamRequest {
 
 export type ViewMode = 'flat' | 'pivot';
 
+export type PriceFormat = 'percent3' | 'percent4' | 'percent2' | 'decimal4' | 'decimal6' | 'bps';
+
 export interface GridRow {
   id: string;
   type: string;
@@ -41,6 +43,7 @@ export interface GridRow {
   price: number;
   prevPrice?: number;
   priceChange?: 'up' | 'down' | 'unchanged';
+  updateTimestamp?: number;
 }
 
 export interface PivotRow {
