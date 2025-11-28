@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Instrument, InstrumentPrice, ViewMode, PriceFormat } from '../types';
+import type { Instrument, InstrumentPrice, ViewMode, PivotOrientation, PriceFormat } from '../types';
 
 interface PricingState {
   // Configuration
@@ -23,6 +23,7 @@ interface PricingState {
 
   // View settings
   viewMode: ViewMode;
+  pivotOrientation: PivotOrientation;
   priceFormat: PriceFormat;
 
   // Actions
@@ -36,6 +37,7 @@ interface PricingState {
   updatePrices: (prices: InstrumentPrice[], sequenceNumber: number) => void;
   setStreaming: (streaming: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
+  setPivotOrientation: (orientation: PivotOrientation) => void;
   setPriceFormat: (format: PriceFormat) => void;
   reset: () => void;
 }
@@ -53,6 +55,7 @@ export const usePricingStore = create<PricingState>((set) => ({
   sequenceNumber: 0,
   lastUpdateTime: null,
   viewMode: 'flat',
+  pivotOrientation: 'startByEnd',
   priceFormat: 'percent3',
 
   setCurrencies: (currencies) => set({ currencies }),
@@ -114,6 +117,8 @@ export const usePricingStore = create<PricingState>((set) => ({
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  setPivotOrientation: (orientation) => set({ pivotOrientation: orientation }),
 
   setPriceFormat: (format) => set({ priceFormat: format }),
 

@@ -33,6 +33,8 @@ export interface StreamRequest {
 
 export type ViewMode = 'flat' | 'pivot';
 
+export type PivotOrientation = 'startByEnd' | 'endByStart';
+
 export type PriceFormat = 'percent3' | 'percent4' | 'percent2' | 'decimal4' | 'decimal6' | 'bps';
 
 export interface GridRow {
