@@ -7,12 +7,14 @@ import type {
   GetContextMenuItemsParams,
   MenuItemDef,
   ICellRendererParams,
+  GridReadyEvent,
+  ColumnPivotModeChangedEvent,
 } from 'ag-grid-community';
 import { LicenseManager } from 'ag-grid-enterprise';
 import 'ag-grid-enterprise';
 import { usePricingStore } from '../stores/pricingStore';
 import { formatPrice, PriceCellRenderer } from './PriceCellRenderer';
-import type { GridRow, PivotRow, PriceFormat } from '../types';
+import type { GridRow, PriceFormat } from '../types';
 
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -31,8 +33,8 @@ const tenorComparator = (a: string, b: string): number => {
   return tenorOrder(a) - tenorOrder(b);
 };
 
-// Custom cell renderer wrapper for flat view price column
-function FlatPriceCellRenderer(params: ICellRendererParams) {
+// Custom cell renderer for price column
+function PriceColumnRenderer(params: ICellRendererParams) {
   const data = params.data as GridRow;
   const context = params.context as { priceFormat: PriceFormat };
 
@@ -54,17 +56,14 @@ export function PricingGrid() {
     previousPrices,
     updateTimestamps,
     viewMode,
+    setViewMode,
     sequenceNumber,
     lastUpdateTime,
     priceFormat,
   } = usePricingStore();
 
-  // Track previous ends to detect when pivot columns need updating
-  const prevEndsRef = useRef<string>('');
-  const prevViewModeRef = useRef(viewMode);
-
-  // Flat view rows with update timestamps
-  const flatRows = useMemo((): GridRow[] => {
+  // Build row data from instruments and prices
+  const rowData = useMemo((): GridRow[] => {
     return instruments.map((inst) => {
       const priceData = prices.get(inst.id);
       const prevPrice = previousPrices.get(inst.id);
@@ -91,46 +90,13 @@ export function PricingGrid() {
     });
   }, [instruments, prices, previousPrices, updateTimestamps]);
 
-  // Pivot view data - separate rows and column structure
-  const pivotData = useMemo(() => {
-    const starts = [...new Set(instruments.map((i) => i.start))];
-    const ends = [...new Set(instruments.map((i) => i.end))];
-    const types = [...new Set(instruments.map((i) => i.type))];
-
-    starts.sort(tenorComparator);
-    ends.sort(tenorComparator);
-
-    const rows: PivotRow[] = [];
-    if (viewMode === 'pivot') {
-      for (const type of types) {
-        for (const start of starts) {
-          const row: PivotRow = { start, type };
-          for (const end of ends) {
-            const inst = instruments.find(
-              (i) => i.type === type && i.start === start && i.end === end
-            );
-            if (inst) {
-              const priceData = prices.get(inst.id);
-              row[end] = priceData?.price;
-            }
-          }
-          if (Object.keys(row).some((k) => k !== 'start' && k !== 'type' && row[k] !== undefined)) {
-            rows.push(row);
-          }
-        }
-      }
-    }
-
-    return { rows, ends };
-  }, [viewMode, instruments, prices]);
-
-  // Create pivot value formatter that uses current format
-  const pivotValueFormatter = useCallback((params: { value: number | undefined | null }) => {
+  // Price value formatter for pivot mode aggregated values
+  const priceValueFormatter = useCallback((params: { value: number | undefined | null }) => {
     return formatPrice(params.value, priceFormat);
   }, [priceFormat]);
 
-  // Flat view columns - stable reference, only depends on priceFormat
-  const flatColumns = useMemo((): ColDef[] => [
+  // Column definitions - configured for both flat and pivot modes
+  const columnDefs = useMemo((): ColDef[] => [
     {
       field: 'type',
       headerName: 'Type',
@@ -139,6 +105,9 @@ export function PricingGrid() {
       enableRowGroup: true,
       enablePivot: true,
       filter: 'agSetColumnFilter',
+      // Default: group by type in pivot mode
+      rowGroup: viewMode === 'pivot',
+      hide: viewMode === 'pivot',
     },
     {
       field: 'start',
@@ -148,6 +117,9 @@ export function PricingGrid() {
       enablePivot: true,
       filter: 'agSetColumnFilter',
       comparator: tenorComparator,
+      // Default: group by start in pivot mode
+      rowGroup: viewMode === 'pivot',
+      hide: viewMode === 'pivot',
     },
     {
       field: 'end',
@@ -157,93 +129,89 @@ export function PricingGrid() {
       enablePivot: true,
       filter: 'agSetColumnFilter',
       comparator: tenorComparator,
+      // Default: pivot on end in pivot mode
+      pivot: viewMode === 'pivot',
+      hide: viewMode === 'pivot',
     },
     {
       field: 'price',
       headerName: 'Price',
       width: 130,
-      cellRenderer: FlatPriceCellRenderer,
+      cellRenderer: viewMode === 'flat' ? PriceColumnRenderer : undefined,
+      valueFormatter: viewMode === 'pivot' ? priceValueFormatter : undefined,
       aggFunc: 'avg',
       enableValue: true,
       filter: 'agNumberColumnFilter',
+      cellClass: viewMode === 'pivot' ? 'text-right font-mono' : undefined,
     },
-  ], []);
+  ], [viewMode, priceValueFormatter]);
 
-  // Pivot columns - depends on ends list and format
-  const pivotColumns = useMemo((): ColDef[] => {
-    return [
-      {
-        field: 'type',
-        headerName: 'Type',
-        pinned: 'left',
-        width: 90,
-        cellClass: 'font-medium',
-        enableRowGroup: true,
-      },
-      {
-        field: 'start',
-        headerName: 'Start',
-        pinned: 'left',
-        width: 70,
-        cellClass: 'font-medium',
-        comparator: tenorComparator,
-      },
-      ...pivotData.ends.map((end) => ({
-        field: end,
-        headerName: end,
-        width: 95,
-        type: 'numericColumn',
-        valueFormatter: pivotValueFormatter,
-        cellClass: 'text-right font-mono',
-        aggFunc: 'avg' as const,
-      })),
-    ];
-  }, [pivotData.ends, pivotValueFormatter]);
-
-  const getRowId = useCallback((params: { data: GridRow | PivotRow }): string => {
-    const data = params.data;
-    if ('id' in data && 'end' in data) {
-      return (data as GridRow).id;
-    }
-    return `${data.type}-${data.start}`;
+  const getRowId = useCallback((params: { data: GridRow }): string => {
+    return params.data.id;
   }, []);
 
-  // Only update row data, not columns, on each tick
+  // Handle grid ready - set initial state
+  const onGridReady = useCallback((event: GridReadyEvent) => {
+    // Open sidebar columns panel when in pivot mode for easier configuration
+    if (viewMode === 'pivot') {
+      event.api.openToolPanel('columns');
+    }
+  }, [viewMode]);
+
+  // Sync view mode when pivot mode changes in grid
+  const onColumnPivotModeChanged = useCallback((event: ColumnPivotModeChangedEvent) => {
+    const isPivotMode = event.api.isPivotMode();
+    const currentViewMode = isPivotMode ? 'pivot' : 'flat';
+    if (currentViewMode !== viewMode) {
+      setViewMode(currentViewMode);
+    }
+  }, [viewMode, setViewMode]);
+
+  // Toggle pivot mode when viewMode changes from store
   useEffect(() => {
     const api = gridRef.current?.api;
     if (!api) return;
 
-    const rowData = viewMode === 'flat' ? flatRows : pivotData.rows;
-    api.setGridOption('rowData', rowData);
-  }, [viewMode, flatRows, pivotData.rows]);
+    const isPivotMode = api.isPivotMode();
+    const shouldBePivot = viewMode === 'pivot';
 
-  // Update columns only when view mode changes
-  useEffect(() => {
-    const api = gridRef.current?.api;
-    if (!api) return;
+    if (isPivotMode !== shouldBePivot) {
+      api.setGridOption('pivotMode', shouldBePivot);
 
-    if (viewMode !== prevViewModeRef.current) {
-      prevViewModeRef.current = viewMode;
-      if (viewMode === 'flat') {
-        api.setGridOption('columnDefs', flatColumns);
+      // Apply default pivot configuration
+      if (shouldBePivot) {
+        // Set up default pivot: Type + Start as row groups, End as pivot, Price as value
+        api.applyColumnState({
+          state: [
+            { colId: 'type', rowGroup: true, hide: true },
+            { colId: 'start', rowGroup: true, hide: true },
+            { colId: 'end', pivot: true, hide: true },
+            { colId: 'price', aggFunc: 'avg' },
+          ],
+          defaultState: { rowGroup: false, pivot: false },
+        });
+        api.openToolPanel('columns');
       } else {
-        api.setGridOption('columnDefs', pivotColumns);
-        prevEndsRef.current = pivotData.ends.join(',');
+        // Reset to flat view
+        api.applyColumnState({
+          state: [
+            { colId: 'type', rowGroup: false, hide: false },
+            { colId: 'start', rowGroup: false, hide: false },
+            { colId: 'end', pivot: false, hide: false },
+            { colId: 'price', aggFunc: null },
+          ],
+        });
+        api.closeToolPanel();
       }
     }
-  }, [viewMode, flatColumns, pivotColumns, pivotData.ends]);
+  }, [viewMode]);
 
-  // Update pivot columns only when End tenors change (new instruments added)
+  // Update row data
   useEffect(() => {
     const api = gridRef.current?.api;
-    if (!api || viewMode !== 'pivot') return;
-
-    const currentEnds = pivotData.ends.join(',');
-    if (currentEnds !== prevEndsRef.current) {
-      prevEndsRef.current = currentEnds;
-      api.setGridOption('columnDefs', pivotColumns);
-    }
-  }, [viewMode, pivotData.ends, pivotColumns]);
+    if (!api) return;
+    api.setGridOption('rowData', rowData);
+  }, [rowData]);
 
   // Refresh cells when format changes
   useEffect(() => {
@@ -261,7 +229,7 @@ export function PricingGrid() {
     floatingFilter: false,
   }), []);
 
-  // Enterprise: Side bar configuration
+  // Enterprise: Side bar configuration - always visible for pivot controls
   const sideBar = useMemo((): SideBarDef => ({
     toolPanels: [
       {
@@ -275,6 +243,8 @@ export function PricingGrid() {
           suppressValues: false,
           suppressPivots: false,
           suppressPivotMode: false,
+          suppressColumnFilter: false,
+          suppressColumnSelectAll: false,
         },
       },
       {
@@ -285,9 +255,10 @@ export function PricingGrid() {
         toolPanel: 'agFiltersToolPanel',
       },
     ],
-    defaultToolPanel: '',
-    hiddenByDefault: true,
-  }), []);
+    defaultToolPanel: viewMode === 'pivot' ? 'columns' : '',
+    hiddenByDefault: false,
+    position: 'right',
+  }), [viewMode]);
 
   // Enterprise: Status bar with aggregations
   const statusBar = useMemo((): { statusPanels: StatusPanelDef[] } => ({
@@ -336,6 +307,18 @@ export function PricingGrid() {
     ];
   }, []);
 
+  // Auto-group column configuration for pivot mode
+  const autoGroupColumnDef = useMemo((): ColDef => ({
+    headerName: 'Group',
+    minWidth: 150,
+    cellRendererParams: {
+      suppressCount: false,
+    },
+    sortable: true,
+    filter: true,
+    comparator: tenorComparator,
+  }), []);
+
   return (
     <div className="flex-1 flex flex-col">
       <div className="flex items-center justify-between px-2 py-1 bg-trader-panel border-b border-trader-border">
@@ -346,6 +329,11 @@ export function PricingGrid() {
           <span className="text-xxs text-trader-accent bg-trader-bg px-1.5 py-0.5 rounded">
             Enterprise
           </span>
+          {viewMode === 'pivot' && (
+            <span className="text-xxs text-green-500 bg-trader-bg px-1.5 py-0.5 rounded">
+              Pivot Mode
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4 text-xs text-trader-muted">
           {sequenceNumber > 0 && (
@@ -362,15 +350,21 @@ export function PricingGrid() {
       <div className="flex-1 ag-theme-alpine-dark">
         <AgGridReact
           ref={gridRef}
-          rowData={viewMode === 'flat' ? flatRows : pivotData.rows}
-          columnDefs={viewMode === 'flat' ? flatColumns : pivotColumns}
+          rowData={rowData}
+          columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           getRowId={getRowId}
           context={{ priceFormat }}
+          onGridReady={onGridReady}
+          onColumnPivotModeChanged={onColumnPivotModeChanged}
           animateRows={false}
           suppressCellFocus={true}
           headerHeight={32}
           rowHeight={28}
+          // Pivot mode
+          pivotMode={viewMode === 'pivot'}
+          pivotDefaultExpanded={-1}
+          pivotColumnGroupTotals="before"
           // Enterprise features
           sideBar={sideBar}
           statusBar={statusBar}
@@ -379,20 +373,15 @@ export function PricingGrid() {
           allowContextMenuWithControlKey={true}
           getContextMenuItems={getContextMenuItems}
           enableCharts={true}
-          rowGroupPanelShow="onlyWhenGrouping"
-          groupDisplayType="groupRows"
+          // Row grouping
+          rowGroupPanelShow="always"
+          groupDisplayType="multipleColumns"
           suppressAggFuncInHeader={false}
+          groupDefaultExpanded={-1}
+          autoGroupColumnDef={autoGroupColumnDef}
           // Clipboard
           enableCellTextSelection={true}
           ensureDomOrder={true}
-          // Row grouping & aggregation
-          groupDefaultExpanded={1}
-          autoGroupColumnDef={{
-            minWidth: 200,
-            cellRendererParams: {
-              suppressCount: false,
-            },
-          }}
           // Maintain column state
           maintainColumnOrder={true}
         />
