@@ -1,14 +1,26 @@
 import { create } from 'zustand';
-import type { Instrument, InstrumentPrice, ViewMode, PivotOrientation, PriceFormat, ComparisonType } from '../types';
+import type { Instrument, InstrumentPrice, InstrumentTypeInfo, ViewMode, PivotOrientation, PriceFormat, ComparisonType } from '../types';
+
+// Helper to generate unique IDs
+let idCounter = 0;
+export const generateInstrumentId = () => `inst-${Date.now()}-${++idCounter}`;
+
+// Create an empty instrument row
+export const createEmptyInstrument = (copyFrom?: Instrument): Instrument => ({
+  id: generateInstrumentId(),
+  type: copyFrom?.type ?? '',
+  group: copyFrom?.group ?? '',
+  start: '',
+  end: '',
+});
 
 interface PricingState {
   // Configuration
   currencies: string[];
   selectedCurrency: string | null;
-  instrumentTypes: string[];
-  selectedType: string | null;
+  instrumentTypes: InstrumentTypeInfo[];
 
-  // Instruments in dashboard
+  // Instruments in dashboard (editable rows)
   instruments: Instrument[];
 
   // Live prices
@@ -39,13 +51,16 @@ interface PricingState {
   pivotOrientation: PivotOrientation;
   priceFormat: PriceFormat;
 
+  // Error handling
+  error: string | null;
+
   // Actions
   setCurrencies: (currencies: string[]) => void;
   setSelectedCurrency: (currency: string | null) => void;
-  setInstrumentTypes: (types: string[]) => void;
-  setSelectedType: (type: string | null) => void;
-  addInstrument: (instrument: Instrument) => void;
+  setInstrumentTypes: (types: InstrumentTypeInfo[]) => void;
+  addInstrument: (copyFromIndex?: number) => void;
   removeInstrument: (id: string) => void;
+  updateInstrument: (id: string, updates: Partial<Omit<Instrument, 'id'>>) => void;
   clearInstruments: () => void;
   updatePrices: (prices: InstrumentPrice[], sequenceNumber: number) => void;
   setStreaming: (streaming: boolean) => void;
@@ -56,6 +71,7 @@ interface PricingState {
   setHistoricalPrices: (type: ComparisonType, prices: Map<string, number>) => void;
   setLoadingComparison: (type: ComparisonType, loading: boolean) => void;
   clearHistoricalPrices: (type: ComparisonType) => void;
+  setError: (error: string | null) => void;
   reset: () => void;
 }
 
@@ -63,8 +79,7 @@ export const usePricingStore = create<PricingState>((set) => ({
   currencies: [],
   selectedCurrency: null,
   instrumentTypes: [],
-  selectedType: null,
-  instruments: [],
+  instruments: [createEmptyInstrument()], // Start with one empty row
   prices: new Map(),
   previousPrices: new Map(),
   updateTimestamps: new Map(),
@@ -81,34 +96,49 @@ export const usePricingStore = create<PricingState>((set) => ({
   viewMode: 'flat',
   pivotOrientation: 'startByEnd',
   priceFormat: 'percent3',
+  error: null,
 
   setCurrencies: (currencies) => set({ currencies }),
 
   setSelectedCurrency: (currency) => set({
     selectedCurrency: currency,
-    selectedType: null,
     instrumentTypes: [],
+    error: null,
   }),
 
   setInstrumentTypes: (types) => set({ instrumentTypes: types }),
 
-  setSelectedType: (type) => set({ selectedType: type }),
+  addInstrument: (copyFromIndex?: number) => set((state) => {
+    const copyFrom = copyFromIndex !== undefined && copyFromIndex >= 0
+      ? state.instruments[copyFromIndex]
+      : state.instruments[state.instruments.length - 1];
+    return {
+      instruments: [...state.instruments, createEmptyInstrument(copyFrom)],
+    };
+  }),
 
-  addInstrument: (instrument) => set((state) => ({
-    instruments: [...state.instruments, instrument],
-  })),
+  removeInstrument: (id) => set((state) => {
+    const newInstruments = state.instruments.filter((i) => i.id !== id);
+    // Ensure at least one row remains
+    if (newInstruments.length === 0) {
+      newInstruments.push(createEmptyInstrument());
+    }
+    const newPrices = new Map(state.prices);
+    newPrices.delete(id);
+    return {
+      instruments: newInstruments,
+      prices: newPrices,
+    };
+  }),
 
-  removeInstrument: (id) => set((state) => ({
-    instruments: state.instruments.filter((i) => i.id !== id),
-    prices: (() => {
-      const newPrices = new Map(state.prices);
-      newPrices.delete(id);
-      return newPrices;
-    })(),
+  updateInstrument: (id, updates) => set((state) => ({
+    instruments: state.instruments.map((inst) =>
+      inst.id === id ? { ...inst, ...updates } : inst
+    ),
   })),
 
   clearInstruments: () => set({
-    instruments: [],
+    instruments: [createEmptyInstrument()],
     prices: new Map(),
     previousPrices: new Map(),
     updateTimestamps: new Map(),
@@ -117,6 +147,7 @@ export const usePricingStore = create<PricingState>((set) => ({
       mtd: new Map(),
       cod: new Map(),
     },
+    error: null,
   }),
 
   updatePrices: (prices, sequenceNumber) => set((state) => {
@@ -140,6 +171,7 @@ export const usePricingStore = create<PricingState>((set) => ({
       updateTimestamps: newUpdateTimestamps,
       sequenceNumber,
       lastUpdateTime: new Date(),
+      error: null, // Clear error on successful update
     };
   }),
 
@@ -185,8 +217,10 @@ export const usePricingStore = create<PricingState>((set) => ({
     },
   })),
 
+  setError: (error) => set({ error }),
+
   reset: () => set({
-    instruments: [],
+    instruments: [createEmptyInstrument()],
     prices: new Map(),
     previousPrices: new Map(),
     updateTimestamps: new Map(),
@@ -200,5 +234,6 @@ export const usePricingStore = create<PricingState>((set) => ({
     isStreaming: false,
     sequenceNumber: 0,
     lastUpdateTime: null,
+    error: null,
   }),
 }));

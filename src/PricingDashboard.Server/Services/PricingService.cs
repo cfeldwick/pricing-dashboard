@@ -42,8 +42,10 @@ public class PricingService : IPricingService
                 {
                     InstrumentId = instrument.Id,
                     Type = instrument.Type,
+                    Group = instrument.Group,
                     Start = instrument.Start,
                     End = instrument.End,
+                    FreeText = instrument.FreeText,
                     Price = price,
                     Timestamp = timestamp
                 });
