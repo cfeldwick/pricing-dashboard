@@ -6,12 +6,13 @@ import type {
   GetContextMenuItemsParams,
   MenuItemDef,
   ValueFormatterParams,
+  ICellRendererParams,
 } from 'ag-grid-community';
 import { LicenseManager } from 'ag-grid-enterprise';
 import 'ag-grid-enterprise';
 import { usePricingStore } from '../stores/pricingStore';
 import { formatPrice } from './PriceCellRenderer';
-import type { GridRow, PivotRow } from '../types';
+import type { GridRow, PivotRow, ComparisonType } from '../types';
 
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -30,6 +31,35 @@ const tenorComparator = (a: string, b: string): number => {
   return tenorOrder(a) - tenorOrder(b);
 };
 
+// Diff cell renderer with up/down arrow and color
+function DiffCellRenderer(params: ICellRendererParams) {
+  const value = params.value as number | undefined;
+
+  if (value === undefined || value === null || isNaN(value)) {
+    return <span className="text-trader-muted">-</span>;
+  }
+
+  const isPositive = value > 0;
+  const isNegative = value < 0;
+  const arrow = isPositive ? '\u25B2' : isNegative ? '\u25BC' : '';
+  const colorClass = isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-trader-muted';
+
+  // Format as basis points for small values
+  const absValue = Math.abs(value);
+  let displayValue: string;
+  if (absValue < 0.01) {
+    displayValue = `${(value * 10000).toFixed(1)} bps`;
+  } else {
+    displayValue = `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
+  }
+
+  return (
+    <span className={`font-mono ${colorClass}`}>
+      {arrow} {displayValue}
+    </span>
+  );
+}
+
 export function PricingGrid() {
   const gridRef = useRef<AgGridReact>(null);
   const prevInstrumentCountRef = useRef(0);
@@ -41,21 +71,33 @@ export function PricingGrid() {
     sequenceNumber,
     lastUpdateTime,
     priceFormat,
+    enabledComparisons,
+    historicalPrices,
   } = usePricingStore();
 
-  // Flat view rows
+  // Flat view rows - includes diff calculations for comparison columns
   const flatRows = useMemo((): GridRow[] => {
     return instruments.map((inst) => {
       const priceData = prices.get(inst.id);
+      const currentPrice = priceData?.price ?? 0;
+
+      // Calculate diffs for each enabled comparison type
+      const ytdHistorical = historicalPrices.ytd.get(inst.id);
+      const mtdHistorical = historicalPrices.mtd.get(inst.id);
+      const codHistorical = historicalPrices.cod.get(inst.id);
+
       return {
         id: inst.id,
         type: inst.type,
         start: inst.start,
         end: inst.end,
-        price: priceData?.price ?? 0,
+        price: currentPrice,
+        ytdDiff: ytdHistorical !== undefined ? currentPrice - ytdHistorical : undefined,
+        mtdDiff: mtdHistorical !== undefined ? currentPrice - mtdHistorical : undefined,
+        codDiff: codHistorical !== undefined ? currentPrice - codHistorical : undefined,
       };
     });
-  }, [instruments, prices]);
+  }, [instruments, prices, historicalPrices]);
 
   // Pivot view data - build pivot rows based on orientation
   const pivotData = useMemo(() => {
@@ -121,40 +163,86 @@ export function PricingGrid() {
     return formatPrice(params.value, priceFormat);
   }, [priceFormat]);
 
-  // Flat view columns
-  const flatColumns = useMemo((): ColDef[] => [
-    {
-      field: 'type',
-      headerName: 'Type',
-      width: 100,
-      cellClass: 'font-medium',
-      filter: 'agSetColumnFilter',
-    },
-    {
-      field: 'start',
-      headerName: 'Start',
-      width: 80,
-      filter: 'agSetColumnFilter',
-      comparator: tenorComparator,
-    },
-    {
-      field: 'end',
-      headerName: 'End',
-      width: 80,
-      filter: 'agSetColumnFilter',
-      comparator: tenorComparator,
-    },
-    {
-      field: 'price',
-      headerName: 'Price',
-      width: 120,
+  // Comparison column definitions
+  const comparisonColumnDefs: Record<ComparisonType, ColDef> = useMemo(() => ({
+    ytd: {
+      field: 'ytdDiff',
+      headerName: 'YtD',
+      width: 110,
       type: 'numericColumn',
-      valueFormatter: priceValueFormatter,
-      cellClass: 'text-right font-mono',
+      cellRenderer: DiffCellRenderer,
+      cellClass: 'text-right',
       filter: 'agNumberColumnFilter',
       enableCellChangeFlash: true,
     },
-  ], [priceValueFormatter]);
+    mtd: {
+      field: 'mtdDiff',
+      headerName: 'MtD',
+      width: 110,
+      type: 'numericColumn',
+      cellRenderer: DiffCellRenderer,
+      cellClass: 'text-right',
+      filter: 'agNumberColumnFilter',
+      enableCellChangeFlash: true,
+    },
+    cod: {
+      field: 'codDiff',
+      headerName: 'CoD',
+      width: 110,
+      type: 'numericColumn',
+      cellRenderer: DiffCellRenderer,
+      cellClass: 'text-right',
+      filter: 'agNumberColumnFilter',
+      enableCellChangeFlash: true,
+    },
+  }), []);
+
+  // Flat view columns - includes comparison columns when enabled
+  const flatColumns = useMemo((): ColDef[] => {
+    const baseColumns: ColDef[] = [
+      {
+        field: 'type',
+        headerName: 'Type',
+        width: 100,
+        cellClass: 'font-medium',
+        filter: 'agSetColumnFilter',
+      },
+      {
+        field: 'start',
+        headerName: 'Start',
+        width: 80,
+        filter: 'agSetColumnFilter',
+        comparator: tenorComparator,
+      },
+      {
+        field: 'end',
+        headerName: 'End',
+        width: 80,
+        filter: 'agSetColumnFilter',
+        comparator: tenorComparator,
+      },
+      {
+        field: 'price',
+        headerName: 'Price',
+        width: 120,
+        type: 'numericColumn',
+        valueFormatter: priceValueFormatter,
+        cellClass: 'text-right font-mono',
+        filter: 'agNumberColumnFilter',
+        enableCellChangeFlash: true,
+      },
+    ];
+
+    // Add comparison columns in order: YtD, MtD, CoD
+    const comparisonOrder: ComparisonType[] = ['ytd', 'mtd', 'cod'];
+    for (const type of comparisonOrder) {
+      if (enabledComparisons.has(type)) {
+        baseColumns.push(comparisonColumnDefs[type]);
+      }
+    }
+
+    return baseColumns;
+  }, [priceValueFormatter, enabledComparisons, comparisonColumnDefs]);
 
   // Pivot view columns - depends on orientation and tenors
   const pivotColumns = useMemo((): ColDef[] => {
