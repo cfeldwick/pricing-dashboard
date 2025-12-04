@@ -17,6 +17,7 @@ export function useSignalR() {
     setInstrumentTypes,
     updatePrices,
     setStreaming,
+    setError,
     selectedCurrency,
     instruments,
   } = usePricingStore();
@@ -91,18 +92,25 @@ export function useSignalR() {
       }
     } catch (err) {
       console.error('Failed to load currency info:', err);
+      setError('Failed to load currency information');
     }
-  }, [setInstrumentTypes]);
+  }, [setInstrumentTypes, setError]);
 
   const startStream = useCallback(async () => {
     const connection = connectionRef.current;
     if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
-      console.error('Cannot start stream: not connected');
+      setError('Cannot start stream: not connected to server');
       return;
     }
 
-    if (!selectedCurrency || instruments.length === 0) {
-      console.error('Cannot start stream: no currency or instruments');
+    // Filter to only instruments that have type and group set
+    const validInstruments = instruments.filter(i => i.type && i.group);
+    if (!selectedCurrency) {
+      setError('Please select a currency first');
+      return;
+    }
+    if (validInstruments.length === 0) {
+      setError('Please add at least one instrument with type and group');
       return;
     }
 
@@ -114,11 +122,12 @@ export function useSignalR() {
 
     const request: StreamRequest = {
       currency: selectedCurrency,
-      instruments: instruments,
+      instruments: validInstruments,
     };
 
     try {
       setStreaming(true);
+      setError(null);
       const stream = connection.stream<PriceUpdate>('StreamPrices', request);
 
       streamSubscriptionRef.current = stream.subscribe({
@@ -127,6 +136,7 @@ export function useSignalR() {
         },
         error: (err) => {
           console.error('Stream error:', err);
+          setError(`Stream error: ${err.message || 'Unknown error'}`);
           setStreaming(false);
         },
         complete: () => {
@@ -136,9 +146,10 @@ export function useSignalR() {
       });
     } catch (err) {
       console.error('Failed to start stream:', err);
+      setError(`Failed to start stream: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setStreaming(false);
     }
-  }, [selectedCurrency, instruments, updatePrices, setStreaming]);
+  }, [selectedCurrency, instruments, updatePrices, setStreaming, setError]);
 
   const stopStream = useCallback(async () => {
     const connection = connectionRef.current;

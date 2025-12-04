@@ -1,6 +1,7 @@
 export interface Instrument {
   id: string;
   type: string;
+  group: string;
   start: string;
   end: string;
 }
@@ -8,6 +9,7 @@ export interface Instrument {
 export interface InstrumentPrice {
   instrumentId: string;
   type: string;
+  group: string;
   start: string;
   end: string;
   price: number;
@@ -21,9 +23,14 @@ export interface PriceUpdate {
   sequenceNumber: number;
 }
 
+export interface InstrumentTypeInfo {
+  type: string;
+  groups: string[];
+}
+
 export interface CurrencyInfo {
   currency: string;
-  instrumentTypes: string[];
+  instrumentTypes: InstrumentTypeInfo[];
 }
 
 export interface StreamRequest {
@@ -40,6 +47,7 @@ export type PriceFormat = 'percent3' | 'percent4' | 'percent2' | 'decimal4' | 'd
 export interface GridRow {
   id: string;
   type: string;
+  group: string;
   start: string;
   end: string;
   price: number;
@@ -55,6 +63,7 @@ export interface GridRow {
 export interface PivotRow {
   start: string;
   type: string;
+  group: string;
   [endTenor: string]: string | number | undefined;
 }
 

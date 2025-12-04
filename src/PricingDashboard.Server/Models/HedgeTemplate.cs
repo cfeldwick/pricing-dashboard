@@ -10,6 +10,7 @@ public record HedgeTemplate
 public record InstrumentTypeConfig
 {
     public List<Instrument> Instruments { get; init; } = new();
+    public List<string> Groups { get; init; } = new();
     public string? Description { get; init; }
 }
 

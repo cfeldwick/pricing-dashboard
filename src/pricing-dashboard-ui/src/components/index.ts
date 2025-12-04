@@ -1,7 +1,6 @@
 export { CurrencySelector } from './CurrencySelector';
+export { ErrorBanner } from './ErrorBanner';
 export { FormatSelector } from './FormatSelector';
-export { InstrumentBuilder } from './InstrumentBuilder';
-export { InstrumentList } from './InstrumentList';
 export { formatPrice } from './PriceCellRenderer';
 export { PricingGrid } from './PricingGrid';
 export { StatusBar } from './StatusBar';

@@ -75,9 +75,31 @@ public class TemplateService : ITemplateService
                 CurveTopicPattern = "MARKET/YIELDCURVE/{currency}",
                 InstrumentTypes = new Dictionary<string, InstrumentTypeConfig>
                 {
-                    ["Deposit"] = new() { Description = "Money market deposits" },
-                    ["Swap"] = new() { Description = "Interest rate swaps" },
-                    ["BasisSwap"] = new() { Description = "Basis swaps" }
+                    ["Deposit"] = new()
+                    {
+                        Description = "Money market deposits",
+                        Groups = new List<string> { "ON", "TN", "SN", "1W", "2W", "1M", "2M", "3M", "6M", "9M", "12M" }
+                    },
+                    ["Swap"] = new()
+                    {
+                        Description = "Interest rate swaps",
+                        Groups = new List<string> { "Vanilla", "IMM", "MAC" }
+                    },
+                    ["BasisSwap"] = new()
+                    {
+                        Description = "Basis swaps",
+                        Groups = new List<string> { "3s6s", "1s3s", "6s12s", "OIS3s", "OIS6s" }
+                    },
+                    ["FRA"] = new()
+                    {
+                        Description = "Forward rate agreements",
+                        Groups = new List<string> { "1x4", "2x5", "3x6", "6x9", "9x12" }
+                    },
+                    ["OIS"] = new()
+                    {
+                        Description = "Overnight index swaps",
+                        Groups = new List<string> { "Standard", "IMM" }
+                    }
                 }
             };
 
@@ -107,7 +129,13 @@ public class TemplateService : ITemplateService
         return new CurrencyInfo
         {
             Currency = currency,
-            InstrumentTypes = template.InstrumentTypes.Keys.ToList()
+            InstrumentTypes = template.InstrumentTypes
+                .Select(kvp => new InstrumentTypeInfo
+                {
+                    Type = kvp.Key,
+                    Groups = kvp.Value.Groups
+                })
+                .ToList()
         };
     }
 
