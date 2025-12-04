@@ -46,10 +46,29 @@ export interface GridRow {
   prevPrice?: number;
   priceChange?: 'up' | 'down' | 'unchanged';
   updateTimestamp?: number;
+  // Comparison columns - diff from historical price
+  ytdDiff?: number;
+  mtdDiff?: number;
+  codDiff?: number;
 }
 
 export interface PivotRow {
   start: string;
   type: string;
   [endTenor: string]: string | number | undefined;
+}
+
+// Comparison column types
+export type ComparisonType = 'ytd' | 'mtd' | 'cod';
+
+export interface HistoricalPriceRequest {
+  currency: string;
+  instruments: Instrument[];
+  asOfDate: string; // ISO date string
+}
+
+export interface HistoricalPriceResponse {
+  currency: string;
+  asOfDate: string;
+  prices: InstrumentPrice[];
 }

@@ -70,4 +70,45 @@ app.MapGet("/api/currencies/{currency}", (string currency, ITemplateService temp
     return info != null ? Results.Ok(info) : Results.NotFound();
 });
 
+// Historical prices endpoint - one-off request for comparison columns
+app.MapPost("/api/historical-prices", async (
+    HistoricalPriceRequest request,
+    IMarketDataService marketDataService,
+    ITemplateService templateService,
+    IPricingService pricingService,
+    ILogger<Program> logger) =>
+{
+    logger.LogInformation("Historical price request for {Currency} as of {Date} with {Count} instruments",
+        request.Currency, request.AsOfDate, request.Instruments.Count);
+
+    // Get historical curve for the requested date
+    var curve = await marketDataService.GetHistoricalCurveAsync(request.Currency, request.AsOfDate);
+    if (curve == null)
+    {
+        logger.LogWarning("Could not retrieve historical curve for {Currency} as of {Date}",
+            request.Currency, request.AsOfDate);
+        return Results.NotFound(new { error = "Historical curve not available" });
+    }
+
+    // Create template for pricing
+    var template = templateService.CreateInjectedTemplate(request.Currency, request.Instruments);
+    if (template == null)
+    {
+        logger.LogWarning("Failed to create template for {Currency}", request.Currency);
+        return Results.BadRequest(new { error = "Invalid currency or instruments" });
+    }
+
+    // Calculate prices using the historical curve
+    var prices = pricingService.CalculatePrices(template, curve);
+
+    var response = new HistoricalPriceResponse
+    {
+        Currency = request.Currency,
+        AsOfDate = request.AsOfDate,
+        Prices = prices
+    };
+
+    return Results.Ok(response);
+});
+
 app.Run();

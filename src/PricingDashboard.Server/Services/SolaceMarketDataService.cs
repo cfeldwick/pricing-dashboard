@@ -354,6 +354,41 @@ public class SolaceMarketDataService : IMarketDataService, IHostedService, IDisp
         }
     }
 
+    public Task<YieldCurve?> GetHistoricalCurveAsync(string currency, DateTime asOfDate)
+    {
+        // In a real implementation, this would query a historical data service
+        // For now, we use cached curves if available, otherwise return null
+        var topic = $"MARKET/YIELDCURVE/{currency}";
+
+        if (_cachedCurves.TryGetValue(topic, out var cachedCurve))
+        {
+            // Create a modified curve with the historical date
+            // In production, you would query actual historical data
+            var historicalCurve = new YieldCurve
+            {
+                Currency = cachedCurve.Currency,
+                Timestamp = asOfDate,
+                SequenceNumber = 0,
+                Points = new Dictionary<string, double>(cachedCurve.Points)
+            };
+
+            // Apply a simple date-based adjustment for demo purposes
+            var daysAgo = (DateTime.UtcNow.Date - asOfDate.Date).Days;
+            var adjustment = daysAgo * 0.001; // ~0.1% per 100 days
+
+            foreach (var key in historicalCurve.Points.Keys.ToList())
+            {
+                historicalCurve.Points[key] = Math.Round(historicalCurve.Points[key] - adjustment, 4);
+            }
+
+            _logger.LogInformation("Generated historical curve for {Currency} as of {Date} (based on cached data)", currency, asOfDate.Date);
+            return Task.FromResult<YieldCurve?>(historicalCurve);
+        }
+
+        _logger.LogWarning("No cached curve available for historical lookup: {Currency}", currency);
+        return Task.FromResult<YieldCurve?>(null);
+    }
+
     public void Dispose()
     {
         StopAsync(CancellationToken.None).GetAwaiter().GetResult();

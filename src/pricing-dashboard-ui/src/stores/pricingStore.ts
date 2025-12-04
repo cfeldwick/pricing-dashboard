@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Instrument, InstrumentPrice, ViewMode, PivotOrientation, PriceFormat } from '../types';
+import type { Instrument, InstrumentPrice, ViewMode, PivotOrientation, PriceFormat, ComparisonType } from '../types';
 
 interface PricingState {
   // Configuration
@@ -15,6 +15,19 @@ interface PricingState {
   prices: Map<string, InstrumentPrice>;
   previousPrices: Map<string, number>;
   updateTimestamps: Map<string, number>;
+
+  // Historical/comparison prices - keyed by comparison type, then instrument ID
+  historicalPrices: {
+    ytd: Map<string, number>;
+    mtd: Map<string, number>;
+    cod: Map<string, number>;
+  };
+
+  // Which comparison columns are enabled
+  enabledComparisons: Set<ComparisonType>;
+
+  // Loading states for historical data
+  loadingComparisons: Set<ComparisonType>;
 
   // Streaming state
   isStreaming: boolean;
@@ -39,6 +52,10 @@ interface PricingState {
   setViewMode: (mode: ViewMode) => void;
   setPivotOrientation: (orientation: PivotOrientation) => void;
   setPriceFormat: (format: PriceFormat) => void;
+  toggleComparison: (type: ComparisonType) => void;
+  setHistoricalPrices: (type: ComparisonType, prices: Map<string, number>) => void;
+  setLoadingComparison: (type: ComparisonType, loading: boolean) => void;
+  clearHistoricalPrices: (type: ComparisonType) => void;
   reset: () => void;
 }
 
@@ -51,6 +68,13 @@ export const usePricingStore = create<PricingState>((set) => ({
   prices: new Map(),
   previousPrices: new Map(),
   updateTimestamps: new Map(),
+  historicalPrices: {
+    ytd: new Map(),
+    mtd: new Map(),
+    cod: new Map(),
+  },
+  enabledComparisons: new Set(),
+  loadingComparisons: new Set(),
   isStreaming: false,
   sequenceNumber: 0,
   lastUpdateTime: null,
@@ -88,6 +112,11 @@ export const usePricingStore = create<PricingState>((set) => ({
     prices: new Map(),
     previousPrices: new Map(),
     updateTimestamps: new Map(),
+    historicalPrices: {
+      ytd: new Map(),
+      mtd: new Map(),
+      cod: new Map(),
+    },
   }),
 
   updatePrices: (prices, sequenceNumber) => set((state) => {
@@ -122,11 +151,52 @@ export const usePricingStore = create<PricingState>((set) => ({
 
   setPriceFormat: (format) => set({ priceFormat: format }),
 
+  toggleComparison: (type) => set((state) => {
+    const newEnabled = new Set(state.enabledComparisons);
+    if (newEnabled.has(type)) {
+      newEnabled.delete(type);
+    } else {
+      newEnabled.add(type);
+    }
+    return { enabledComparisons: newEnabled };
+  }),
+
+  setHistoricalPrices: (type, prices) => set((state) => ({
+    historicalPrices: {
+      ...state.historicalPrices,
+      [type]: prices,
+    },
+  })),
+
+  setLoadingComparison: (type, loading) => set((state) => {
+    const newLoading = new Set(state.loadingComparisons);
+    if (loading) {
+      newLoading.add(type);
+    } else {
+      newLoading.delete(type);
+    }
+    return { loadingComparisons: newLoading };
+  }),
+
+  clearHistoricalPrices: (type) => set((state) => ({
+    historicalPrices: {
+      ...state.historicalPrices,
+      [type]: new Map(),
+    },
+  })),
+
   reset: () => set({
     instruments: [],
     prices: new Map(),
     previousPrices: new Map(),
     updateTimestamps: new Map(),
+    historicalPrices: {
+      ytd: new Map(),
+      mtd: new Map(),
+      cod: new Map(),
+    },
+    enabledComparisons: new Set(),
+    loadingComparisons: new Set(),
     isStreaming: false,
     sequenceNumber: 0,
     lastUpdateTime: null,

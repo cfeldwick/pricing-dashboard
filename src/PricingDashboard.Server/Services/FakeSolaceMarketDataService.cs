@@ -72,6 +72,51 @@ public class FakeSolaceMarketDataService : IMarketDataService, IHostedService
         return 1.0;
     }
 
+    public Task<YieldCurve?> GetHistoricalCurveAsync(string currency, DateTime asOfDate)
+    {
+        if (!BaseCurves.TryGetValue(currency, out var baseRate))
+        {
+            _logger.LogWarning("Unknown currency for historical curve: {Currency}", currency);
+            return Task.FromResult<YieldCurve?>(null);
+        }
+
+        // Use a deterministic seed based on currency and date so same inputs give same outputs
+        var seed = HashCode.Combine(currency, asOfDate.Date);
+        var historicalRandom = new Random(seed);
+
+        // Apply a date-based shift to simulate historical rates
+        // More recent dates are closer to current rates
+        var daysAgo = (DateTime.UtcNow.Date - asOfDate.Date).Days;
+        var historicalShift = daysAgo * 0.001; // ~0.1% per 100 days difference
+        var perturbedBase = baseRate - historicalShift + (historicalRandom.NextDouble() - 0.5) * 0.3;
+
+        var curve = GenerateHistoricalCurve(currency, perturbedBase, historicalRandom, asOfDate);
+        _logger.LogInformation("Generated historical curve for {Currency} as of {Date}", currency, asOfDate.Date);
+
+        return Task.FromResult<YieldCurve?>(curve);
+    }
+
+    private YieldCurve GenerateHistoricalCurve(string currency, double baseRate, Random random, DateTime asOfDate)
+    {
+        var points = new Dictionary<string, double>();
+        var currentRate = baseRate;
+
+        foreach (var tenor in Tenors)
+        {
+            var tenorYears = TenorToYears(tenor);
+            var spread = tenorYears * 0.1 + (random.NextDouble() - 0.5) * 0.02;
+            points[tenor] = Math.Round(currentRate + spread, 4);
+        }
+
+        return new YieldCurve
+        {
+            Currency = currency,
+            Timestamp = asOfDate,
+            SequenceNumber = 0,
+            Points = points
+        };
+    }
+
     public IDisposable Subscribe(string topic, Action<YieldCurve> onCurveReceived)
     {
         var subscription = _subscriptions.GetOrAdd(topic, _ => new TopicSubscription(topic));

@@ -1,4 +1,5 @@
 import { CurrencySelector } from './components/CurrencySelector';
+import { ComparisonSelector } from './components/ComparisonSelector';
 import { FormatSelector } from './components/FormatSelector';
 import { InstrumentBuilder } from './components/InstrumentBuilder';
 import { InstrumentList } from './components/InstrumentList';
@@ -29,6 +30,8 @@ function App() {
         <div className="w-px h-6 bg-trader-border" />
         <InstrumentBuilder />
         <div className="flex-1" />
+        <ComparisonSelector />
+        <div className="w-px h-6 bg-trader-border" />
         <FormatSelector />
         <div className="w-px h-6 bg-trader-border" />
         <ViewModeToggle />
