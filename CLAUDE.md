@@ -36,6 +36,7 @@ A real-time financial pricing dashboard with AG Grid Enterprise and SignalR stre
 
 ### IMarketDataService
 - `Subscribe(topic, callback)` - Subscribe to yield curve updates
+- `GetHistoricalCurveAsync(currency, asOfDate)` - One-off historical curve lookup
 - Implementations: `FakeSolaceMarketDataService` (demo), `SolaceMarketDataService` (real)
 - Topics: `MARKET/YIELDCURVE/{currency}`
 
@@ -52,12 +53,32 @@ A real-time financial pricing dashboard with AG Grid Enterprise and SignalR stre
 - `GET /health` - Health check
 - `GET /api/currencies` - List currencies
 - `GET /api/currencies/{currency}` - Currency info
+- `POST /api/historical-prices` - One-off historical price lookup for comparison columns
 
 ### SignalR Hub (`/hubs/pricing`)
 - `GetCurrencies()` - Get available currencies
 - `GetCurrencyInfo(currency)` - Get currency details
 - `StreamPrices(StreamRequest)` - Stream real-time prices
 - `StopStream()` - Stop streaming
+
+## Comparison Columns (YtD, MtD, CoD)
+
+Toggle-able columns showing price diff from historical dates:
+- **YtD** (Year to Date): Diff from Jan 1st of current year
+- **MtD** (Month to Date): Diff from 1st of current month
+- **CoD** (Change on Day): Diff from previous day
+
+### How it works:
+1. User toggles column via `ComparisonSelector` component
+2. Frontend calls `POST /api/historical-prices` with date
+3. Backend loads historical curve via `GetHistoricalCurveAsync()`
+4. Diff calculated as: `currentPrice - historicalPrice`
+5. Display: Colored (green/red) with up/down arrows
+
+### Key files:
+- `components/ComparisonSelector.tsx` - Toggle UI
+- `stores/pricingStore.ts` - `historicalPrices`, `enabledComparisons` state
+- `components/PricingGrid.tsx` - `DiffCellRenderer` for styled display
 
 ## Running
 
